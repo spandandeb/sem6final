@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, useNavigate } from 'react-router-dom';
-import { Users, LogOut, BarChart, MessageSquare, Calendar, BookOpen } from 'lucide-react';
+import { Users, LogOut, BarChart, MessageSquare, Calendar, BookOpen, Bookmark } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import MentorMatch from './components/MentorMatch';
 import Analytics from './components/Analytics';
@@ -15,6 +15,7 @@ import AlumniSignup from './components/AlumniSignup';
 import Login from './components/Login';
 import DiscussionForum from './components/DiscussionForum';
 import ChatInterface from './components/ChatInterface';
+import RegisteredEvents from './components/RegisteredEvents';
 
 // Add console logs to verify imports
 console.log("ResourceLibraryPage import:", ResourceLibraryPage);
@@ -25,6 +26,7 @@ console.log("LoginPage import:", LoginPage);
 function Navigation() {
   const { isAuthenticated, logout } = useAuth();
   const navigate = useNavigate();
+  const [showRegisteredEvents, setShowRegisteredEvents] = useState<boolean>(false);
   
   const handleLogout = () => {
     logout();
@@ -96,13 +98,22 @@ function Navigation() {
               </button>
             )}
             {isAuthenticated ? (
-              <button 
-                className="bg-gray-200 text-gray-800 px-6 py-2 rounded-lg hover:bg-gray-300 transition-all transform hover:scale-105 font-medium flex items-center"
-                onClick={handleLogout}
-              >
-                <LogOut className="h-4 w-4 mr-2" />
-                Sign Out
-              </button>
+              <>
+                <button 
+                  className="bg-indigo-100 text-indigo-800 px-6 py-2 rounded-lg hover:bg-indigo-200 transition-all transform hover:scale-105 font-medium flex items-center"
+                  onClick={() => setShowRegisteredEvents(true)}
+                >
+                  <Bookmark className="h-4 w-4 mr-2" />
+                  My Events
+                </button>
+                <button 
+                  className="bg-gray-200 text-gray-800 px-6 py-2 rounded-lg hover:bg-gray-300 transition-all transform hover:scale-105 font-medium flex items-center"
+                  onClick={handleLogout}
+                >
+                  <LogOut className="h-4 w-4 mr-2" />
+                  Sign Out
+                </button>
+              </>
             ) : (
               <button 
                 className="bg-gradient-to-r from-indigo-600 to-blue-600 text-white px-6 py-2 rounded-lg hover:from-indigo-700 hover:to-blue-700 transition-all transform hover:scale-105 font-medium"
@@ -114,6 +125,11 @@ function Navigation() {
           </div>
         </div>
       </div>
+      
+      {/* Registered Events Modal */}
+      {showRegisteredEvents && (
+        <RegisteredEvents onClose={() => setShowRegisteredEvents(false)} />
+      )}
     </nav>
   );
 }

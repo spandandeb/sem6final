@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Link } from 'react-router-dom';
 
 interface Feedback {
   id: string;
@@ -13,6 +12,7 @@ interface Feedback {
   sessionRelevance: number;
   suggestions: string;
   createdAt: string;
+  userId?: string; // Add userId field for tracking unique users
 }
 
 const Analytics: React.FC = () => {
@@ -95,17 +95,35 @@ const Analytics: React.FC = () => {
 
   const getAveragesByEvent = () => {
     const eventMap = new Map();
+    
+    // Get event details from localStorage to ensure proper names
+    const storedEventDetails = localStorage.getItem('eventDetails');
+    let eventDetailsMap: Record<string, { title?: string; type?: string }> = {};
+    
+    if (storedEventDetails) {
+      try {
+        eventDetailsMap = JSON.parse(storedEventDetails);
+      } catch (e) {
+        console.error('Error parsing stored event details:', e);
+      }
+    }
 
     feedbackData.forEach(feedback => {
       if (!eventMap.has(feedback.eventId)) {
+        // Use event name from localStorage if available
+        const storedEvent = eventDetailsMap[feedback.eventId];
+        const eventName = storedEvent?.title || feedback.eventName || 'Unknown Event';
+        
         eventMap.set(feedback.eventId, {
           eventId: feedback.eventId,
-          eventName: feedback.eventName || 'Unnamed Event',
+          eventName: eventName,
           ratings: [],
           eventExperiences: [],
           speakerInteractions: [],
           sessionRelevances: [],
-          count: 0
+          count: 0,
+          userIds: new Set(), // Track unique users who provided feedback
+          suggestions: [] // Store suggestions for word cloud
         });
       }
 
@@ -114,6 +132,13 @@ const Analytics: React.FC = () => {
       if (!isNaN(feedback.eventExperience)) eventData.eventExperiences.push(feedback.eventExperience);
       if (!isNaN(feedback.speakerInteraction)) eventData.speakerInteractions.push(feedback.speakerInteraction);
       if (!isNaN(feedback.sessionRelevance)) eventData.sessionRelevances.push(feedback.sessionRelevance);
+      
+      // Track unique users (using a Set to avoid duplicates)
+      if (feedback.userId) eventData.userIds.add(feedback.userId);
+      
+      // Store suggestions for word cloud analysis
+      if (feedback.suggestions) eventData.suggestions.push(feedback.suggestions);
+      
       eventData.count++;
     });
 
@@ -124,6 +149,17 @@ const Analytics: React.FC = () => {
         return Number((sum / arr.length).toFixed(1));
       };
 
+      // Calculate rating distributions for more detailed analysis
+      const getRatingDistribution = (arr: number[]) => {
+        const distribution = [0, 0, 0, 0, 0]; // 5 possible ratings (1-5)
+        arr.forEach(rating => {
+          if (rating >= 1 && rating <= 5) {
+            distribution[Math.floor(rating) - 1]++;
+          }
+        });
+        return distribution;
+      };
+
       return {
         eventId: event.eventId,
         eventName: event.eventName,
@@ -131,7 +167,12 @@ const Analytics: React.FC = () => {
         avgEventExperience: calculateAverage(event.eventExperiences),
         avgSpeakerInteraction: calculateAverage(event.speakerInteractions),
         avgSessionRelevance: calculateAverage(event.sessionRelevances),
-        count: event.count
+        count: event.count,
+        uniqueUsers: event.userIds.size,
+        ratingDistribution: getRatingDistribution(event.ratings),
+        suggestions: event.suggestions,
+        // Calculate sentiment score based on ratings (simple approach)
+        sentimentScore: calculateAverage(event.ratings) / 5 * 100
       };
     });
   };
@@ -237,61 +278,196 @@ const Analytics: React.FC = () => {
     </div>
   );
 
-  const renderEventsTab = () => (
-    <div className="space-y-8">
-      <div className="bg-white p-6 rounded-xl shadow-md overflow-hidden">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">Event Comparison</h3>
-        <div className="h-96">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart
-              data={eventAverages}
-              margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="eventName" />
-              <YAxis domain={[0, 5]} />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey="avgRating" name="Overall Rating" fill="#8884d8" />
-              <Bar dataKey="avgEventExperience" name="Event Experience" fill="#82ca9d" />
-              <Bar dataKey="avgSpeakerInteraction" name="Speaker Interaction" fill="#ffc658" />
-              <Bar dataKey="avgSessionRelevance" name="Session Relevance" fill="#ff8042" />
-            </BarChart>
-          </ResponsiveContainer>
+  const renderEventsTab = () => {
+    // Calculate the total number of unique users across all events
+    const totalUniqueUsers = eventAverages.reduce((total, event) => total + (event.uniqueUsers || 0), 0);
+    
+    // Sort events by average rating for better visualization
+    const sortedEvents = [...eventAverages].sort((a, b) => b.avgRating - a.avgRating);
+    
+    return (
+      <div className="space-y-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+          {/* Total Feedback Card */}
+          <div className="bg-white p-6 rounded-xl shadow-md">
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Total Feedback</h3>
+            <div className="flex items-center">
+              <div className="bg-blue-100 p-3 rounded-full mr-4">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-3xl font-bold text-gray-900">{feedbackData.length}</p>
+                <p className="text-sm text-gray-500">Total responses</p>
+              </div>
+            </div>
+          </div>
+          
+          {/* Unique Users Card */}
+          <div className="bg-white p-6 rounded-xl shadow-md">
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Unique Users</h3>
+            <div className="flex items-center">
+              <div className="bg-green-100 p-3 rounded-full mr-4">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-3xl font-bold text-gray-900">{totalUniqueUsers}</p>
+                <p className="text-sm text-gray-500">Unique participants</p>
+              </div>
+            </div>
+          </div>
+          
+          {/* Average Rating Card */}
+          <div className="bg-white p-6 rounded-xl shadow-md">
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Overall Satisfaction</h3>
+            <div className="flex items-center">
+              <div className="bg-yellow-100 p-3 rounded-full mr-4">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-3xl font-bold text-gray-900">
+                  {calculateAverages().rating} / 5
+                </p>
+                <p className="text-sm text-gray-500">Average rating</p>
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
+        
+        {/* Event Comparison Chart */}
+        <div className="bg-white p-6 rounded-xl shadow-md overflow-hidden">
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Event Comparison</h3>
+          <div className="h-96">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={sortedEvents.slice(0, 10)} // Show top 10 events for better readability
+                margin={{ top: 20, right: 30, left: 20, bottom: 70 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis 
+                  dataKey="eventName" 
+                  angle={-45} 
+                  textAnchor="end" 
+                  height={80} 
+                  interval={0}
+                  tick={{ fontSize: 12 }}
+                />
+                <YAxis domain={[0, 5]} />
+                <Tooltip 
+                  formatter={(value) => [`${value}`, '']}
+                  labelFormatter={(label) => `Event: ${label}`}
+                />
+                <Legend />
+                <Bar dataKey="avgRating" name="Overall Rating" fill="#8884d8" />
+                <Bar dataKey="avgEventExperience" name="Event Experience" fill="#82ca9d" />
+                <Bar dataKey="avgSpeakerInteraction" name="Speaker Interaction" fill="#ffc658" />
+                <Bar dataKey="avgSessionRelevance" name="Session Relevance" fill="#ff8042" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
 
-      <div className="bg-white p-6 rounded-xl shadow-md">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">Events Feedback Summary</h3>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Event</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Responses</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avg. Rating</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Exp. Rating</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Speaker Rating</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Relevance Rating</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {eventAverages.map((event, index) => (
-                <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{event.eventName}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{event.count}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{event.avgRating}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{event.avgEventExperience}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{event.avgSpeakerInteraction}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{event.avgSessionRelevance}</td>
+        {/* User Participation by Event */}
+        <div className="bg-white p-6 rounded-xl shadow-md overflow-hidden">
+          <h3 className="text-lg font-medium text-gray-900 mb-4">User Participation by Event</h3>
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={sortedEvents.slice(0, 10)}
+                margin={{ top: 20, right: 30, left: 20, bottom: 70 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis 
+                  dataKey="eventName" 
+                  angle={-45} 
+                  textAnchor="end" 
+                  height={80} 
+                  interval={0}
+                  tick={{ fontSize: 12 }}
+                />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="uniqueUsers" name="Unique Users" fill="#8884d8" />
+                <Bar dataKey="count" name="Total Responses" fill="#82ca9d" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Sentiment Analysis */}
+        <div className="bg-white p-6 rounded-xl shadow-md overflow-hidden">
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Event Sentiment Analysis</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {sortedEvents.slice(0, 6).map((event, index) => (
+              <div key={index} className="border rounded-lg p-4">
+                <h4 className="font-medium text-gray-800 mb-2">{event.eventName}</h4>
+                <div className="flex items-center mb-2">
+                  <div className="w-full bg-gray-200 rounded-full h-4">
+                    <div 
+                      className={`h-4 rounded-full ${event.sentimentScore >= 80 ? 'bg-green-500' : event.sentimentScore >= 60 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                      style={{ width: `${event.sentimentScore}%` }}
+                    ></div>
+                  </div>
+                  <span className="ml-2 text-sm font-medium text-gray-700">{event.sentimentScore.toFixed(0)}%</span>
+                </div>
+                <div className="flex justify-between text-xs text-gray-500">
+                  <span>Responses: {event.count}</span>
+                  <span>Avg Rating: {event.avgRating}/5</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Detailed Events Table */}
+        <div className="bg-white p-6 rounded-xl shadow-md">
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Events Feedback Summary</h3>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Event</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Responses</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unique Users</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avg. Rating</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Exp. Rating</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Speaker Rating</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Relevance Rating</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sentiment</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {sortedEvents.map((event, index) => (
+                  <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{event.eventName}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{event.count}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{event.uniqueUsers || 0}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{event.avgRating}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{event.avgEventExperience}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{event.avgSpeakerInteraction}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{event.avgSessionRelevance}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span 
+                        className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${event.sentimentScore >= 80 ? 'bg-green-100 text-green-800' : event.sentimentScore >= 60 ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}
+                      >
+                        {event.sentimentScore >= 80 ? 'Positive' : event.sentimentScore >= 60 ? 'Neutral' : 'Needs Improvement'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderDetailsTab = () => (
     <div className="bg-white p-6 rounded-xl shadow-md">

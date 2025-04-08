@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar as CalendarIcon, Plus, Filter, User, MapPin, Clock, ArrowRight } from 'lucide-react';
+import { Calendar as CalendarIcon, Plus, Filter, User, MapPin, Clock, ArrowRight, CheckCircle, MessageSquare } from 'lucide-react';
 import { eventAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import FeedbackForm from '../components/FeedbackForm';
 
 interface Event {
   _id: string;
@@ -80,12 +81,26 @@ const EventsPage: React.FC = () => {
     error: null
   });
 
+  // State for locally stored registered events
+  const [registeredEvents, setRegisteredEvents] = useState<string[]>([]);
+  const [registrationMessage, setRegistrationMessage] = useState<string | null>(null);
+  const [showFeedbackModal, setShowFeedbackModal] = useState<boolean>(false);
+  const [currentEventIdForFeedback, setCurrentEventIdForFeedback] = useState<string | null>(null);
+
   useEffect(() => {
     const timer = setTimeout(() => {
       fetchEvents();
     }, 500);
     
     return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    // Load registered events from localStorage
+    const storedRegistrations = localStorage.getItem('registeredEvents');
+    if (storedRegistrations) {
+      setRegisteredEvents(JSON.parse(storedRegistrations));
+    }
   }, []);
 
   const fetchEvents = async () => {
@@ -237,7 +252,38 @@ const EventsPage: React.FC = () => {
         return;
       }
       
-      await eventAPI.registerForEvent(eventId);
+      // Instead of calling the API, store in localStorage
+      const updatedRegistrations = [...registeredEvents, eventId];
+      localStorage.setItem('registeredEvents', JSON.stringify(updatedRegistrations));
+      setRegisteredEvents(updatedRegistrations);
+      
+      // Store event details in localStorage for reference
+      const currentEvent = events.find(e => e._id === eventId);
+      if (currentEvent) {
+        // Get existing event details or initialize empty object
+        const storedEventDetails = localStorage.getItem('eventDetails');
+        let eventDetailsMap: Record<string, any> = {};
+        
+        if (storedEventDetails) {
+          try {
+            eventDetailsMap = JSON.parse(storedEventDetails);
+          } catch (e) {
+            console.error('Error parsing stored event details:', e);
+          }
+        }
+        
+        // Add or update this event's details
+        eventDetailsMap[eventId] = {
+          title: currentEvent.title,
+          type: currentEvent.type,
+          startTime: currentEvent.startTime,
+          endTime: currentEvent.endTime,
+          location: currentEvent.location
+        };
+        
+        // Save back to localStorage
+        localStorage.setItem('eventDetails', JSON.stringify(eventDetailsMap));
+      }
       
       setRegistrationStatus({
         loading: false,
@@ -245,18 +291,22 @@ const EventsPage: React.FC = () => {
         error: null
       });
       
-      // Refresh events list and selected event details
+      // Set a message to display on the event card
+      setRegistrationMessage('Successfully registered!');
+      
+      // Clear the message after 3 seconds
+      setTimeout(() => {
+        setRegistrationMessage(null);
+      }, 3000);
+      
+      // Refresh events list
       fetchEvents();
-      if (selectedEvent) {
-        const updatedEvent = await eventAPI.getEventById(eventId);
-        setSelectedEvent(updatedEvent.data);
-      }
     } catch (err: any) {
       console.error('Error registering for event:', err);
       setRegistrationStatus({
         loading: false,
         success: null,
-        error: err.response?.data?.message || 'Failed to register. Please try again.'
+        error: 'Failed to register. Please try again.'
       });
     }
   };
@@ -347,17 +397,14 @@ const EventsPage: React.FC = () => {
     const token = localStorage.getItem('authToken');
     if (!token) return false;
     
-    try {
-      // In a real app you would decode the token and get the user ID
-      // For this example, we'll assume a user ID of "1"
-      const userId = "1"; // placeholder
-      
-      return event.attendees.some(a => 
-        a.user._id === userId && a.status === 'registered'
-      );
-    } catch {
-      return false;
-    }
+    // Check if event ID is in the registeredEvents array in localStorage
+    return registeredEvents.includes(event._id);
+  };
+
+  // Open feedback form for an event
+  const openFeedbackForm = (eventId: string) => {
+    setCurrentEventIdForFeedback(eventId);
+    setShowFeedbackModal(true);
   };
 
   return (
@@ -502,14 +549,71 @@ const EventsPage: React.FC = () => {
                 
                 <button
                   onClick={() => viewEventDetails(event._id)}
-                  className="w-full bg-indigo-50 text-indigo-700 px-4 py-2 rounded-lg hover:bg-indigo-100 transition flex items-center justify-center"
+                  className="w-full bg-indigo-50 text-indigo-700 px-4 py-2 rounded-lg hover:bg-indigo-100 transition flex items-center justify-center mt-2 mb-2"
                 >
                   View Details
                   <ArrowRight className="h-4 w-4 ml-2" />
                 </button>
+                
+                {isAuthenticated && (
+                  <div className="flex space-x-2 mt-2">
+                    {isUserRegistered(event) ? (
+                      <button
+                        className="flex-1 bg-green-100 text-green-700 px-4 py-2 rounded-lg flex items-center justify-center cursor-default"
+                        disabled
+                      >
+                        <CheckCircle className="h-4 w-4 mr-1" />
+                        Registered
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => registerForEvent(event._id)}
+                        disabled={event.isFull}
+                        className={`flex-1 px-4 py-2 rounded-lg flex items-center justify-center transition ${event.isFull ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : 'bg-blue-500 text-white hover:bg-blue-600'}`}
+                      >
+                        {event.isFull ? 'Full' : 'Register'}
+                      </button>
+                    )}
+                    
+                    <button
+                      onClick={() => openFeedbackForm(event._id)}
+                      className="flex-1 bg-purple-100 text-purple-700 px-4 py-2 rounded-lg hover:bg-purple-200 transition flex items-center justify-center"
+                    >
+                      <MessageSquare className="h-4 w-4 mr-1" />
+                      Feedback
+                    </button>
+                  </div>
+                )}
+                
+                {registrationMessage && event._id === selectedEvent?._id && (
+                  <div className="mt-2 bg-green-100 text-green-800 p-2 rounded-lg text-center text-sm">
+                    {registrationMessage}
+                  </div>
+                )}
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Feedback Form Modal */}
+      {showFeedbackModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-bold text-gray-900">Event Feedback</h2>
+              <button 
+                onClick={() => setShowFeedbackModal(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                ×
+              </button>
+            </div>
+            <FeedbackForm 
+              eventId={currentEventIdForFeedback || ''}
+              onClose={() => setShowFeedbackModal(false)}
+            />
+          </div>
         </div>
       )}
 
