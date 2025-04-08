@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 const { ObjectId } = mongoose.Types;
@@ -26,22 +25,10 @@ module.exports = function(req, res, next) {
     console.log('Auth middleware - User ID type:', typeof dummyUserId, dummyUserId instanceof ObjectId);
     console.log('Auth middleware - User ID string value:', dummyUserId.toString());
     return next();
-=======
-const jwt = require("jsonwebtoken");
-
-module.exports = function(req, res, next) {
-  // Get token from header
-  const token = req.header("x-auth-token");
-
-  // Check if no token
-  if (!token) {
-    return res.status(401).json({ msg: "No token, authorization denied" });
->>>>>>> 9deded8b420084f8db5b4205b5ce934b4b6c94da
   }
 
   // Verify token
   try {
-<<<<<<< HEAD
     // Check if JWT_SECRET is defined
     if (!process.env.JWT_SECRET) {
       console.error('Auth middleware - JWT_SECRET is not defined in environment variables');
@@ -81,13 +68,4 @@ module.exports = function(req, res, next) {
       return res.status(401).json({ message: 'Token is not valid' });
     }
   }
-}; 
-=======
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded.user;
-    next();
-  } catch (err) {
-    res.status(401).json({ msg: "Token is not valid" });
-  }
 };
->>>>>>> 9deded8b420084f8db5b4205b5ce934b4b6c94da

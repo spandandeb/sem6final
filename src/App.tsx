@@ -5,7 +5,7 @@ import Dashboard from './components/Dashboard';
 import MentorMatch from './components/MentorMatch';
 import Analytics from './components/Analytics';
 import Forums from './components/Forums';
-import Login from './pages/Login';
+import LoginPage from './pages/Login';
 import Home from './pages/Home';
 import ResourceLibraryPage from './pages/ResourceLibraryPage';
 import EventsPage from './pages/EventsPage';
@@ -20,6 +20,7 @@ import ChatInterface from './components/ChatInterface';
 console.log("ResourceLibraryPage import:", ResourceLibraryPage);
 console.log("EventsPage import:", EventsPage);
 console.log("Login import:", Login);
+console.log("LoginPage import:", LoginPage);
 
 function Navigation() {
   const { isAuthenticated, logout } = useAuth();
@@ -127,16 +128,11 @@ function App() {
           <Navigation />
           <Routes>
             <Route path="/" element={<Home />} />
-<<<<<<< HEAD
             <Route path="/resources" element={<ResourceLibraryPage />} />
             <Route path="/events" element={<EventsPage />} />
             <Route path="/login" element={<Login />} />
-=======
-            <Route path="/resources" element={<Resources />} />
-            <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<UserSignup />} />
             <Route path="/alumni-signup" element={<AlumniSignup />} />
->>>>>>> 9deded8b420084f8db5b4205b5ce934b4b6c94da
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/mentors" element={<MentorMatch />} />
             <Route path="/chat/:alumniId" element={<ChatInterface />} />

@@ -68,22 +68,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-<<<<<<< HEAD
-    // Check if user is already logged in (e.g., from localStorage)
-    const token = localStorage.getItem('authToken');
-    console.log('AUTH INIT - Token exists:', !!token);
-    if (token) {
-      setIsAuthenticated(true);
-    }
-  }, []);
-
-  const login = () => {
-    // In a real app, you would validate credentials and get a token
-    console.log('AUTH - Login called');
-    localStorage.setItem('authToken', 'dummy-token-12345');
-    setIsAuthenticated(true);
-    console.log('AUTH - User is now authenticated');
-=======
+    // Check if user is already logged in and load user data
+    console.log('AUTH INIT - Loading user data');
     loadUser();
   }, []);
 
@@ -128,6 +114,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (email: string, password: string) => {
     setLoading(true);
     setError(null);
+    console.log('AUTH - Login called with email:', email);
     
     try {
       const res = await axios.post(`${API_URL}/login`, { email, password });
@@ -136,13 +123,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setToken(res.data.token);
       setUser(res.data.user);
       setIsAuthenticated(true);
+      console.log('AUTH - User is now authenticated');
     } catch (err: any) {
+      console.error('AUTH - Login failed:', err);
       setError(err.response?.data?.message || 'Login failed');
       setIsAuthenticated(false);
     }
     
     setLoading(false);
->>>>>>> 9deded8b420084f8db5b4205b5ce934b4b6c94da
   };
 
   const logout = () => {
