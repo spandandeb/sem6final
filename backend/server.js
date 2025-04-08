@@ -11,6 +11,7 @@ const resourceRoutes = require('./routes/resourceRoutes');
 const alumniRoutes = require('./routes/alumniRoutes');
 const chatRoutes = require('./routes/chatRoutes');
 const forumRoutes = require('./routes/forumRoutes');
+const sentimentRoutes = require('./routes/sentiment');
 const cors = require("cors");
 
 // Load environment variables
@@ -64,6 +65,7 @@ app.use('/api/resources', resourceRoutes);
 app.use('/api/alumni', alumniRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/forum', forumRoutes);
+app.use('/api/sentiment', sentimentRoutes);
 
 // Add a debug middleware to check auth token format
 app.use('/api/debug/*', (req, res, next) => {

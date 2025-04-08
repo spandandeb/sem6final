@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { batchAnalyzeSentiment } from '../utils/sentimentAnalysis';
 
 interface Feedback {
   id: string;
@@ -13,6 +14,10 @@ interface Feedback {
   suggestions: string;
   createdAt: string;
   userId?: string; // Add userId field for tracking unique users
+  sentimentAnalysis?: {
+    sentiment: 'positive' | 'negative' | 'neutral';
+    score: number;
+  };
 }
 
 const Analytics: React.FC = () => {
@@ -35,7 +40,35 @@ const Analytics: React.FC = () => {
           feedback.speakerInteraction > 0 && 
           feedback.sessionRelevance > 0
         ));
-        setFeedbackData(validFeedback);
+        
+        // Analyze sentiment for feedback suggestions
+        const feedbackWithSuggestions = validFeedback.filter((feedback: Feedback) => 
+          feedback.suggestions && feedback.suggestions.trim().length > 0
+        );
+        
+        if (feedbackWithSuggestions.length > 0) {
+          const suggestionTexts = feedbackWithSuggestions.map((feedback: Feedback) => feedback.suggestions);
+          const sentimentResults = await batchAnalyzeSentiment(suggestionTexts);
+          
+          // Add sentiment analysis results to feedback data
+          const enhancedFeedback = validFeedback.map((feedback: Feedback) => {
+            if (feedback.suggestions && feedback.suggestions.trim().length > 0) {
+              const index = feedbackWithSuggestions.findIndex((f: Feedback) => f.id === feedback.id);
+              if (index !== -1) {
+                return {
+                  ...feedback,
+                  sentimentAnalysis: sentimentResults[index]
+                };
+              }
+            }
+            return feedback;
+          });
+          
+          setFeedbackData(enhancedFeedback);
+        } else {
+          setFeedbackData(validFeedback);
+        }
+        
         setError(null);
       } catch (err) {
         console.error('Error fetching feedback data:', err);
@@ -123,7 +156,11 @@ const Analytics: React.FC = () => {
           sessionRelevances: [],
           count: 0,
           userIds: new Set(), // Track unique users who provided feedback
-          suggestions: [] // Store suggestions for word cloud
+          suggestions: [], // Store suggestions for word cloud
+          sentimentScores: [], // Store sentiment scores
+          positiveSentiments: 0, // Count of positive sentiments
+          negativeSentiments: 0, // Count of negative sentiments
+          neutralSentiments: 0 // Count of neutral sentiments
         });
       }
 
@@ -136,8 +173,24 @@ const Analytics: React.FC = () => {
       // Track unique users (using a Set to avoid duplicates)
       if (feedback.userId) eventData.userIds.add(feedback.userId);
       
-      // Store suggestions for word cloud analysis
-      if (feedback.suggestions) eventData.suggestions.push(feedback.suggestions);
+      // Store suggestions and sentiment analysis
+      if (feedback.suggestions) {
+        eventData.suggestions.push(feedback.suggestions);
+        
+        // Track sentiment if available
+        if (feedback.sentimentAnalysis) {
+          eventData.sentimentScores.push(feedback.sentimentAnalysis.score);
+          
+          // Count sentiment types
+          if (feedback.sentimentAnalysis.sentiment === 'positive') {
+            eventData.positiveSentiments++;
+          } else if (feedback.sentimentAnalysis.sentiment === 'negative') {
+            eventData.negativeSentiments++;
+          } else {
+            eventData.neutralSentiments++;
+          }
+        }
+      }
       
       eventData.count++;
     });
@@ -160,6 +213,13 @@ const Analytics: React.FC = () => {
         return distribution;
       };
 
+      // Calculate sentiment metrics
+      const avgSentimentScore = calculateAverage(event.sentimentScores);
+      const totalSentiments = event.positiveSentiments + event.negativeSentiments + event.neutralSentiments;
+      const positiveSentimentPercentage = totalSentiments > 0 ? (event.positiveSentiments / totalSentiments) * 100 : 0;
+      const negativeSentimentPercentage = totalSentiments > 0 ? (event.negativeSentiments / totalSentiments) * 100 : 0;
+      const neutralSentimentPercentage = totalSentiments > 0 ? (event.neutralSentiments / totalSentiments) * 100 : 0;
+      
       return {
         eventId: event.eventId,
         eventName: event.eventName,
@@ -172,7 +232,16 @@ const Analytics: React.FC = () => {
         ratingDistribution: getRatingDistribution(event.ratings),
         suggestions: event.suggestions,
         // Calculate sentiment score based on ratings (simple approach)
-        sentimentScore: calculateAverage(event.ratings) / 5 * 100
+        sentimentScore: calculateAverage(event.ratings) / 5 * 100,
+        // ML-based sentiment analysis metrics
+        mlSentimentScore: avgSentimentScore * 100 || 50, // Default to 50 if no data
+        positiveSentiments: event.positiveSentiments,
+        negativeSentiments: event.negativeSentiments,
+        neutralSentiments: event.neutralSentiments,
+        positiveSentimentPercentage,
+        negativeSentimentPercentage,
+        neutralSentimentPercentage,
+        totalSentiments
       };
     });
   };
@@ -400,71 +469,55 @@ const Analytics: React.FC = () => {
           </div>
         </div>
 
-        {/* Sentiment Analysis */}
+        {/* ML-based Sentiment Analysis */}
         <div className="bg-white p-6 rounded-xl shadow-md overflow-hidden">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Event Sentiment Analysis</h3>
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Sentiment Analysis of Feedback Comments</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {sortedEvents.slice(0, 6).map((event, index) => (
               <div key={index} className="border rounded-lg p-4">
                 <h4 className="font-medium text-gray-800 mb-2">{event.eventName}</h4>
-                <div className="flex items-center mb-2">
-                  <div className="w-full bg-gray-200 rounded-full h-4">
-                    <div 
-                      className={`h-4 rounded-full ${event.sentimentScore >= 80 ? 'bg-green-500' : event.sentimentScore >= 60 ? 'bg-yellow-500' : 'bg-red-500'}`}
-                      style={{ width: `${event.sentimentScore}%` }}
-                    ></div>
+                
+                {/* Positive vs Negative Ratio */}
+                {event.totalSentiments > 0 ? (
+                  <div className="mb-2">
+                    <p className="text-sm text-gray-600 mb-1">Sentiment Distribution</p>
+                    <div className="flex h-8 rounded-md overflow-hidden">
+                      <div 
+                        className="bg-green-500 h-full" 
+                        style={{ width: `${event.positiveSentimentPercentage}%` }}
+                        title={`Positive: ${event.positiveSentiments} (${event.positiveSentimentPercentage.toFixed(1)}%)`}
+                      />
+                      <div 
+                        className="bg-yellow-400 h-full" 
+                        style={{ width: `${event.neutralSentimentPercentage}%` }}
+                        title={`Neutral: ${event.neutralSentiments} (${event.neutralSentimentPercentage.toFixed(1)}%)`}
+                      />
+                      <div 
+                        className="bg-red-500 h-full" 
+                        style={{ width: `${event.negativeSentimentPercentage}%` }}
+                        title={`Negative: ${event.negativeSentiments} (${event.negativeSentimentPercentage.toFixed(1)}%)`}
+                      />
+                    </div>
+                    <div className="flex justify-between text-xs mt-2">
+                      <span className="text-green-700 font-medium">{event.positiveSentiments} positive</span>
+                      <span className="text-yellow-700 font-medium">{event.neutralSentiments} neutral</span>
+                      <span className="text-red-700 font-medium">{event.negativeSentiments} negative</span>
+                    </div>
                   </div>
-                  <span className="ml-2 text-sm font-medium text-gray-700">{event.sentimentScore.toFixed(0)}%</span>
-                </div>
-                <div className="flex justify-between text-xs text-gray-500">
-                  <span>Responses: {event.count}</span>
-                  <span>Avg Rating: {event.avgRating}/5</span>
+                ) : (
+                  <p className="text-sm text-gray-500 italic">No sentiment data available</p>
+                )}
+                
+                <div className="flex justify-between text-xs text-gray-500 mt-3">
+                  <span>Total Feedback: {event.count}</span>
+                  <span>With Comments: {event.totalSentiments || 0}</span>
                 </div>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Detailed Events Table */}
-        <div className="bg-white p-6 rounded-xl shadow-md">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Events Feedback Summary</h3>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Event</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Responses</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unique Users</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avg. Rating</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Exp. Rating</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Speaker Rating</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Relevance Rating</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sentiment</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {sortedEvents.map((event, index) => (
-                  <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{event.eventName}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{event.count}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{event.uniqueUsers || 0}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{event.avgRating}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{event.avgEventExperience}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{event.avgSpeakerInteraction}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{event.avgSessionRelevance}</td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span 
-                        className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${event.sentimentScore >= 80 ? 'bg-green-100 text-green-800' : event.sentimentScore >= 60 ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}
-                      >
-                        {event.sentimentScore >= 80 ? 'Positive' : event.sentimentScore >= 60 ? 'Neutral' : 'Needs Improvement'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+
       </div>
     );
   };
