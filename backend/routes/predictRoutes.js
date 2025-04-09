@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { spawn } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 
 // API endpoint to predict mentor matches
 router.post('/predict', async (req, res) => {
@@ -11,6 +12,11 @@ router.post('/predict', async (req, res) => {
     if (!student || !mentors || !Array.isArray(mentors)) {
       return res.status(400).json({ error: 'Invalid request data' });
     }
+    
+    // Check if the Word2Vec model exists
+    const word2vecPath = path.join(__dirname, '../../src/trained_word2vec.pkl');
+    const modelExists = fs.existsSync(word2vecPath);
+    console.log(`Word2Vec model ${modelExists ? 'found' : 'not found'} at ${word2vecPath}`);
     
     // Prepare data for the Python script
     const inputData = JSON.stringify({
@@ -34,6 +40,7 @@ router.post('/predict', async (req, res) => {
     // Collect error data
     pythonProcess.stderr.on('data', (data) => {
       errorData += data.toString();
+      console.log('Python stderr:', data.toString());
     });
     
     // Send input data to Python script

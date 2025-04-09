@@ -7,6 +7,7 @@ import os
 import joblib
 import uuid
 from datetime import datetime
+import gensim
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -25,6 +26,16 @@ try:
 except Exception as e:
     print(f"Error loading model: {e}")
     model_data = None
+
+# Load the trained Word2Vec model
+word2vec_path = os.path.join('src', 'trained_word2vec.pkl')
+try:
+    with open(word2vec_path, 'rb') as f:
+        word2vec_model = pickle.load(f)
+    print(f"Word2Vec model loaded successfully from {word2vec_path}")
+except Exception as e:
+    print(f"Error loading Word2Vec model: {e}")
+    word2vec_model = None
 
 @app.route('/api/predict', methods=['POST'])
 def predict():
@@ -85,17 +96,69 @@ def simple_score_calculation(features):
     # Ensure score is between 0-100
     return int(min(100, max(0, score)))
 
+def calculate_text_similarity(text1, text2):
+    """Calculate semantic similarity between two texts using Word2Vec"""
+    if word2vec_model is None:
+        return 0
+    
+    try:
+        # Convert texts to lowercase and split into words
+        words1 = text1.lower().split()
+        words2 = text2.lower().split()
+        
+        # Filter words that exist in the model's vocabulary
+        words1 = [word for word in words1 if word in word2vec_model.wv.key_to_index]
+        words2 = [word for word in words2 if word in word2vec_model.wv.key_to_index]
+        
+        if not words1 or not words2:
+            return 0
+        
+        # Calculate average vector for each text
+        vec1 = sum(word2vec_model.wv[word] for word in words1) / len(words1)
+        vec2 = sum(word2vec_model.wv[word] for word in words2) / len(words2)
+        
+        # Calculate cosine similarity
+        similarity = np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
+        return max(0, similarity)  # Ensure non-negative
+    except Exception as e:
+        print(f"Error calculating text similarity: {e}")
+        return 0
+
 def create_feature_vector(student, mentor):
     """
     Create a feature vector for the student-mentor pair that matches what the model expects.
     """
     features = []
     
-    # Skills match (count of common skills)
-    student_skills = set(skill['name'].lower() for skill in student.get('skills', []))
-    mentor_skills = set(skill['name'].lower() for skill in mentor.get('skills', []))
-    common_skills = student_skills.intersection(mentor_skills)
-    features.append(len(common_skills))
+    # Skills match (count of common skills + semantic similarity)
+    student_skills = [skill['name'].lower() for skill in student.get('skills', [])]
+    mentor_skills = [skill['name'].lower() for skill in mentor.get('skills', [])]
+    
+    # Direct match (exact skills)
+    student_skills_set = set(student_skills)
+    mentor_skills_set = set(mentor_skills)
+    common_skills = student_skills_set.intersection(mentor_skills_set)
+    direct_match = len(common_skills)
+    
+    # Semantic match (using Word2Vec)
+    semantic_match = 0
+    if word2vec_model is not None:
+        # For each student skill, find the best matching mentor skill
+        for s_skill in student_skills:
+            if s_skill in mentor_skills_set:  # Skip if already directly matched
+                continue
+            
+            # Calculate similarity with each mentor skill
+            max_similarity = 0
+            for m_skill in mentor_skills:
+                similarity = calculate_text_similarity(s_skill, m_skill)
+                max_similarity = max(max_similarity, similarity)
+            
+            semantic_match += max_similarity
+    
+    # Combine direct and semantic matches
+    skills_match = direct_match + semantic_match
+    features.append(skills_match)
     
     # Industry match (binary: 1 if same industry, 0 otherwise)
     student_industry = student.get('industry', {}).get('id')
@@ -103,11 +166,35 @@ def create_feature_vector(student, mentor):
     industry_match = 1 if student_industry == mentor_industry else 0
     features.append(industry_match)
     
-    # Interests match (count of common interests)
-    student_interests = set(interest.lower() for interest in student.get('interests', []))
-    mentor_interests = set(interest.lower() for interest in mentor.get('interests', []))
-    common_interests = student_interests.intersection(mentor_interests)
-    features.append(len(common_interests))
+    # Interests match (count of common interests + semantic similarity)
+    student_interests = [interest.lower() for interest in student.get('interests', [])]
+    mentor_interests = [interest.lower() for interest in mentor.get('interests', [])]
+    
+    # Direct match (exact interests)
+    student_interests_set = set(student_interests)
+    mentor_interests_set = set(mentor_interests)
+    common_interests = student_interests_set.intersection(mentor_interests_set)
+    direct_match = len(common_interests)
+    
+    # Semantic match (using Word2Vec)
+    semantic_match = 0
+    if word2vec_model is not None:
+        # For each student interest, find the best matching mentor interest
+        for s_interest in student_interests:
+            if s_interest in mentor_interests_set:  # Skip if already directly matched
+                continue
+            
+            # Calculate similarity with each mentor interest
+            max_similarity = 0
+            for m_interest in mentor_interests:
+                similarity = calculate_text_similarity(s_interest, m_interest)
+                max_similarity = max(max_similarity, similarity)
+            
+            semantic_match += max_similarity
+    
+    # Combine direct and semantic matches
+    interests_match = direct_match + semantic_match
+    features.append(interests_match)
     
     # Location match (binary: 1 if same location, 0 otherwise)
     location_match = 1 if student.get('location') == mentor.get('location') else 0
@@ -124,6 +211,13 @@ def create_feature_vector(student, mentor):
     # Mentor total mentees
     total_mentees = mentor.get('totalMentees', 0)
     features.append(total_mentees)
+    
+    # Bio similarity (semantic similarity between student and mentor bios)
+    if word2vec_model is not None and 'bio' in student and 'bio' in mentor:
+        bio_similarity = calculate_text_similarity(student['bio'], mentor['bio'])
+        features.append(bio_similarity)
+    else:
+        features.append(0)
     
     return np.array(features)
 
